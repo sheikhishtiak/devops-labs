@@ -1,0 +1,206 @@
+============================================================
+  AWK SIMULATION FILE — Three Patterns Explained
+  Topic: Text Processing with awk
+  For: DevOps Sprint — Linux Fundamentals
+============================================================
+
+------------------------------------------------------------
+SIMULATION 1: Print lines between two patterns
+COMMAND: awk '/START/,/END/ {print}' file.txt
+------------------------------------------------------------
+
+HOW IT WORKS:
+  awk reads line by line.
+  When it sees a line matching /START/, it flips ON a range switch.
+  It prints every line from that point forward.
+  When it sees a line matching /END/, it prints that line too, then flips OFF.
+  Anything outside that range is silently skipped.
+
+SAMPLE INPUT (file.txt):
+  server booting...
+  checking network...
+  START
+  loading config files
+  mounting /var/data
+  starting webserver
+  END
+  cleanup running...
+  done.
+
+WHAT awk SEES AND DOES:
+  Line: "server booting..."   → no match, skip
+  Line: "checking network..."  → no match, skip
+  Line: "START"               → /START/ matches! range turns ON → PRINT
+  Line: "loading config files" → range is ON → PRINT
+  Line: "mounting /var/data"   → range is ON → PRINT
+  Line: "starting webserver"   → range is ON → PRINT
+  Line: "END"                 → /END/ matches, range ON → PRINT, then turns OFF
+  Line: "cleanup running..."   → range is OFF → skip
+  Line: "done."               → range is OFF → skip
+
+OUTPUT:
+  START
+  loading config files
+  mounting /var/data
+  starting webserver
+  END
+
+REAL DEVOPS USE CASE:
+  Log files often have clearly marked sections:
+    [BEGIN DEPLOY]
+    ... deployment steps ...
+    [END DEPLOY]
+  You can extract just that block with:
+    awk '/BEGIN DEPLOY/,/END DEPLOY/ {print}' /var/log/deploy.log
+
+  Also useful for config files where you want to extract a
+  specific stanza (e.g. between [database] and [cache]).
+
+GOTCHA:
+  If /END/ never appears, awk prints everything from /START/ to
+  the end of the file. The range never turns off.
+  If the pattern appears multiple times, awk will capture
+  each START→END block separately.
+
+
+------------------------------------------------------------
+SIMULATION 2: Print the number of fields on each line
+COMMAND: awk '{print NF}' file.txt
+------------------------------------------------------------
+
+HOW IT WORKS:
+  NF is a built-in awk variable meaning "Number of Fields".
+  awk splits each line by whitespace (spaces/tabs) automatically.
+  {print NF} simply prints how many columns that line has.
+  No condition — this runs on every single line.
+
+BUILT-IN awk VARIABLES YOU NEED TO KNOW:
+  NF   = Number of Fields on the current line
+  NR   = Number of Records (current line number, starts at 1)
+  $0   = The entire current line
+  $1   = First field
+  $2   = Second field
+  $NF  = Last field (the NF-th field — clever shortcut)
+
+SAMPLE INPUT (file.txt):
+  ahmed 1001 devops
+  root 0
+  www-data 33 webserver nginx active
+  nobody
+
+WHAT awk SEES AND DOES:
+  Line 1: "ahmed 1001 devops"               → 3 fields  → prints: 3
+  Line 2: "root 0"                          → 2 fields  → prints: 2
+  Line 3: "www-data 33 webserver nginx active" → 5 fields → prints: 5
+  Line 4: "nobody"                          → 1 field   → prints: 1
+
+OUTPUT:
+  3
+  2
+  5
+  1
+
+REAL DEVOPS USE CASE:
+  Validating log or CSV consistency. If every line should have
+  exactly 7 fields (e.g. a structured access log), you can find
+  malformed lines like this:
+    awk 'NF != 7 {print NR": "$0}' /var/log/access.log
+  This prints the line number and content of any line that
+  doesn't have exactly 7 fields — quickly spots corrupt entries.
+
+  Also useful to print just the last field of every line
+  regardless of how many columns there are:
+    awk '{print $NF}' file.txt
+  $NF evaluates to the value of the last field dynamically.
+
+
+------------------------------------------------------------
+SIMULATION 3: Sum a column (add up all RSS memory values)
+COMMAND: ps aux | awk '{sum += $6} END {print sum " KB total RSS"}'
+------------------------------------------------------------
+
+HOW IT WORKS:
+  This command has two parts separated by the END block.
+
+  PART 1 — {sum += $6}
+    Runs on EVERY line ps aux outputs.
+    $6 is the RSS column (Resident Set Size = actual RAM used in KB).
+    sum += $6 means: add the value of $6 to the running total.
+    sum starts at 0 automatically (awk initializes unset vars to 0).
+
+  PART 2 — END {print sum " KB total RSS"}
+    END is a special block that runs ONCE, after all lines are processed.
+    At this point, sum holds the total of all RSS values.
+    It prints the final number with a label.
+
+WHAT ps aux ACTUALLY OUTPUTS (columns):
+  USER    PID  %CPU  %MEM    VSZ    RSS  TTY   STAT  START  TIME  COMMAND
+  root      1   0.0   0.1  16952   9216  ?     Ss    08:00  0:01  /sbin/init
+  root    512   0.0   0.0   4232   2048  ?     S     08:00  0:00  /sbin/dhclient
+  ahmed  1234   1.2   0.5  52000  22016  pts/0 S     09:01  0:04  python app.py
+  ahmed  1235   0.0   0.2  18000   8192  pts/1 S     09:02  0:00  bash
+  www     890   0.3   0.4  45000  18432  ?     S     08:05  0:12  nginx: worker
+
+FIELD REFERENCE FOR ps aux:
+  $1  = USER
+  $2  = PID
+  $3  = %CPU
+  $4  = %MEM
+  $5  = VSZ  (virtual memory size in KB)
+  $6  = RSS  (resident set size — actual physical RAM used in KB)
+  $7  = TTY
+  $8  = STAT
+  $9  = START
+  $10 = TIME
+  $11 = COMMAND
+
+WHAT awk DOES LINE BY LINE:
+  Line (init):      $6 = 9216   → sum = 0 + 9216  = 9216
+  Line (dhclient):  $6 = 2048   → sum = 9216 + 2048  = 11264
+  Line (python):    $6 = 22016  → sum = 11264 + 22016 = 33280
+  Line (bash):      $6 = 8192   → sum = 33280 + 8192  = 41472
+  Line (nginx):     $6 = 18432  → sum = 41472 + 18432 = 59904
+  --- all lines done ---
+  END block fires → prints: 59904 KB total RSS
+
+OUTPUT:
+  59904 KB total RSS
+
+NOTE ON THE HEADER LINE:
+  ps aux always prints a header line first:
+    USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+  awk will try to add $6 from the header ("RSS") to sum.
+  Since "RSS" is not a number, awk treats it as 0 — no harm done.
+  But if you want to be clean, skip it explicitly:
+    ps aux | awk 'NR > 1 {sum += $6} END {print sum " KB total RSS"}'
+  NR > 1 means "skip line 1 (the header), process all others."
+
+REAL DEVOPS USE CASE:
+  Quickly check total RAM your app processes are consuming:
+    ps aux | grep "python" | awk '{sum += $6} END {print sum/1024 " MB"}'
+  Dividing by 1024 converts KB → MB for readability.
+  This is the manual version of what htop and top show you,
+  but with the power to filter and sum exactly what you want.
+
+
+------------------------------------------------------------
+PATTERN SUMMARY
+------------------------------------------------------------
+
+  /START/,/END/ {print}     Range pattern — extract blocks of text
+  {print NF}                NF built-in — count fields per line
+  {sum += $6} END {print}   Accumulator + END block — column math
+
+AWK EXECUTION MODEL (mental model for all three):
+  1. BEGIN block (optional) — runs once before any input
+  2. pattern { action }     — runs on every line that matches pattern
+  3. no pattern { action }  — runs on EVERY line
+  4. END block (optional)   — runs once after all input is processed
+
+  Simulation 1 uses a range pattern    (/START/,/END/)
+  Simulation 2 uses no pattern         (runs on all lines)
+  Simulation 3 uses no pattern + END   (accumulate then report)
+
+------------------------------------------------------------
+END OF SIMULATION FILE
+------------------------------------------------------------
